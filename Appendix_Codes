@@ -1,0 +1,949 @@
+##############################################################################################
+#packages
+library(tidyverse)
+library(psych)
+library(ggpubr)
+library(kableExtra)
+library(MASS)
+library(pscl)
+library(effects)
+library(jtools)
+library(interactions)
+library(yarrr)
+library(catstats)
+library(performance)
+library(countreg)
+library(AER)
+library(MuMIn)
+library(LaplacesDemon)
+library(arm)
+###############################################################################################
+
+#Data Simulation
+###############################################################################################
+#hurdle Poisson data
+sim_hpois.dat <- function(){
+n <- 5000 # Number of observations
+x <- runif(5000, 0, 1)
+beta <- c(0.5, 0.25)
+beta_star <- c(5, -6)
+count <- rep(NA, n)
+cov <- beta_star[1]
+phi <- exp(cov)/(1+exp(cov))
+z <- rbinom(n, 1, prob = phi)
+for(i in 1:n){
+if(z[i] == 0)
+{
+count[i] <- z[i]
+}
+else{
+mu_vec <- exp(beta[1] + beta[2]*x)
+mu <- mu_vec[i]
+count[i] <- rtrunc(1, spec="pois", a=0, b=Inf, lambda = mu)
+}
+}
+df <- data.frame(y = count, x = x)
+return(df)
+}
+
+#hurdle negative binomial data
+sim_hnb.dat <- function(){
+n <- 5000 # Number of observations
+k <- 0.1
+x <- runif(5000, 0, 1)
+beta <- c(0.5, 0.25)
+beta_star <- c(5, -6)
+count <- rep(NA, n)
+cov <- beta_star[1]
+phi <- exp(cov)/(1+exp(cov))
+z <- rbinom(n, 1, prob = phi)
+for(i in 1:n){
+if(z[i] == 0)
+{
+count[i] <- z[i]
+}
+else{
+mu_vec <- exp(beta[1] + beta[2]*x)
+mu <- mu_vec[i]
+p <- (k/(k+mu))
+r <- (mu*p)/(1-p)
+count[i] <- rtrunc(1, spec="nbinom", a=0, b=Inf, size = r, prob = p)
+}
+}
+df <- data.frame(y = count, x = x)
+return(df)
+}
+
+#Poisson Data
+sim_pois.dat <- function(){
+x <- runif(5000, 0, 1)
+beta <- c(0.5, 0.25)
+mu <- exp(beta[1] + beta[2]*x)
+y = rpois(5000, mu)
+df<- data.frame(y = y, x = x)
+return(df)
+}
+
+#Negative binomial Data
+sim_nb.dat <- function(){
+x <- runif(5000, 0, 1)
+beta <- c(0.5, 0.25)
+mu <- exp(beta[1] + beta[2]*x)
+k <- 0.1
+p <- k/(mu+k)
+r <- (mu*p)/(1-p)
+y = rnbinom(5000, size = r, prob = p)
+df<- data.frame(y = y, x = x)
+return(df)
+}
+###############################################################################################
+
+
+#Simulation Study
+###############################################################################################
+#hurdle Poisson simulation
+set.seed(3239)
+mean_aicpois <- 0
+mean_aicnb <- 0
+mean_aichpois <- 0
+mean_aichnb <-0
+bias1 <- 0
+bias2 <- 0
+bias5 <- 0
+bias6 <- 0
+coef1 <- 0
+coef2 <- 0
+coef5 <- 0
+coef6 <- 0
+width.int1 <- 0
+width.int2 <- 0
+width.int5 <- 0
+width.int6 <- 0
+model1 <- 0
+model2 <- 0
+model5 <- 0
+model6 <- 0
+iter1 <- 0
+iter2 <- 0
+iter5 <- 0
+iter6 <- 0
+cov1 <- 0
+cov2 <- 0
+cov5 <- 0
+cov6 <- 0
+for(i in 1:100){
+df1 <- sim_hpois.dat()
+pois.mod1 <- glm(y ~ x, data = df1, family = "poisson")
+coef1[i] <- as.numeric(coef(pois.mod1)[2])
+bias1[i] <- as.numeric(coef(pois.mod1)[2]-0.25)
+width.int1[i] <- as.numeric(4*summary(pois.mod1)$coefficient[2,2])
+cov1[i] <- as.numeric(abs(0.25 - summary(pois.mod1)$coefficient[2,1]) <
+2*summary(pois.mod1)$coefficient[2,2])
+model1[i] <- "Poisson"
+iter1[i] <- i
+nb.mod1 <- glm.nb(y ~ x, data = df1)
+coef2[i] <- as.numeric(coef(nb.mod1)[2])
+bias2[i] <- as.numeric(coef(nb.mod1)[2]-0.25)
+width.int2[i] <- as.numeric(4*summary(nb.mod1)$coefficient[2,2])
+cov2[i] <- as.numeric(abs(0.25 - summary(nb.mod1)$coefficient[2,1]) <
+2*summary(nb.mod1)$coefficient[2,2])
+model2[i] <- "NB"
+iter2[i] <- i
+hpois.mod1 <- hurdle(y ~ x|1, data = df1, dist = "poisson")
+coef5[i] <- as.numeric(coef(hpois.mod1)[2])
+bias5[i] <- as.numeric(coef(hpois.mod1)[2]-0.25)
+width.int5[i] <- as.numeric(4*summary(hpois.mod1)$coefficient$count[2,2])
+cov5[i] <- as.numeric(abs(0.25 - summary(hpois.mod1)$coefficient$count[2,1]) <
+2*summary(hpois.mod1)$coefficient$count[2,2])
+model5[i] <- "HP"
+iter5[i] <- i
+hnb.mod1 <- hurdle(y ~ x|1, data = df1, dist = "negbin")
+coef6[i] <- as.numeric(coef(hnb.mod1)[2])
+bias6[i] <- as.numeric(coef(hnb.mod1)[2]-0.25)
+width.int6[i] <- as.numeric(4*summary(hnb.mod1)$coefficient$count[2,2])
+cov6[i] <- as.numeric(abs(0.25 - summary(hnb.mod1)$coefficient$count[2,1]) <
+2*summary(hnb.mod1)$coefficient$count[2,2])
+model6[i] <- "HNB"
+iter6[i] <- i
+mean_aicpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[1,2]
+mean_aicnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[2,2]
+mean_aichpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[3,2]
+mean_aichnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[4,2]
+}
+sim.dat1 <- data.frame(bias = c(bias1, bias2, bias5, bias6),
+width.int = c(width.int1, width.int2, width.int5,
+width.int6),
+coef = c(coef1, coef2, coef5, coef6),
+model = c(model1, model2, model5, model6),
+iter = c(iter1, iter2, iter5, iter6),
+cov = c(cov1, cov2, cov5, cov6),
+aic = c(mean_aicpois, mean_aicnb, mean_aichpois,
+mean_aichnb))
+
+
+#hurdle negative binomial simulation
+set.seed(32339)
+mean_aicpois <- 0
+mean_aicnb <- 0
+mean_aichpois <- 0
+mean_aichnb <-0
+bias1 <- 0
+bias2 <- 0
+bias5 <- 0
+bias6 <- 0
+coef1 <- 0
+coef2 <- 0
+coef5 <- 0
+coef6 <- 0
+width.int1 <- 0
+width.int2 <- 0
+width.int5 <- 0
+width.int6 <- 0
+model1 <- 0
+model2 <- 0
+model5 <- 0
+model6 <- 0
+iter1 <- 0
+iter2 <- 0
+iter5 <- 0
+iter6 <- 0
+cov1 <- 0
+cov2 <- 0
+cov5 <- 0
+cov6 <- 0
+for(i in 1:100){
+df1 <- sim_hnb.dat()
+pois.mod1 <- glm(y ~ x, data = df1, family = "poisson")
+coef1[i] <- as.numeric(coef(pois.mod1)[2])
+bias1[i] <- as.numeric(coef(pois.mod1)[2]-0.25)
+width.int1[i] <- as.numeric(4*summary(pois.mod1)$coefficient[2,2])
+cov1[i] <- as.numeric(abs(0.25 - summary(pois.mod1)$coefficient[2,1]) <
+2*summary(pois.mod1)$coefficient[2,2])
+model1[i] <- "Poisson"
+iter1[i] <- i
+nb.mod1 <- glm.nb(y ~ x, data = df1)
+coef2[i] <- as.numeric(coef(nb.mod1)[2])
+bias2[i] <- as.numeric(coef(nb.mod1)[2]-0.25)
+width.int2[i] <- as.numeric(4*summary(nb.mod1)$coefficient[2,2])
+cov2[i] <- as.numeric(abs(0.25 - summary(nb.mod1)$coefficient[2,1]) <
+2*summary(nb.mod1)$coefficient[2,2])
+model2[i] <- "NB"
+iter2[i] <- i
+hpois.mod1 <- hurdle(y ~ x|1, data = df1, dist = "poisson")
+coef5[i] <- as.numeric(coef(hpois.mod1)[2])
+bias5[i] <- as.numeric(coef(hpois.mod1)[2]-0.25)
+width.int5[i] <- as.numeric(4*summary(hpois.mod1)$coefficient$count[2,2])
+cov5[i] <- as.numeric(abs(0.25 - summary(hpois.mod1)$coefficient$count[2,1]) <
+2*summary(hpois.mod1)$coefficient$count[2,2])
+model5[i] <- "HP"
+iter5[i] <- i
+hnb.mod1 <- hurdle(y ~ x|1, data = df1, dist = "negbin")
+coef6[i] <- as.numeric(coef(hnb.mod1)[2])
+bias6[i] <- as.numeric(coef(hnb.mod1)[2]-0.25)
+width.int6[i] <- as.numeric(4*summary(hnb.mod1)$coefficient$count[2,2])
+cov6[i] <- as.numeric(abs(0.25 - summary(hnb.mod1)$coefficient$count[2,1]) <
+2*summary(hnb.mod1)$coefficient$count[2,2])
+model6[i] <- "HNB"
+iter6[i] <- i
+mean_aicpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[1,2]
+mean_aicnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[2,2]
+mean_aichpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[3,2]
+mean_aichnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[4,2]
+}
+sim.dat2 <- data.frame(bias = c(bias1, bias2, bias5, bias6),
+width.int = c(width.int1, width.int2, width.int5,
+width.int6),
+coef = c(coef1, coef2, coef5, coef6),
+model = c(model1, model2, model5, model6),
+iter = c(iter1, iter2, iter5, iter6),
+cov = c(cov1, cov2, cov5, cov6),
+aic = c(mean_aicpois, mean_aicnb, mean_aichpois,
+mean_aichnb))
+
+
+#Poisson simulation
+set.seed(32339)
+mean_aicpois <- 0
+mean_aicnb <- 0
+mean_aichpois <- 0
+mean_aichnb <-0
+bias1 <- 0
+bias2 <- 0
+bias5 <- 0
+bias6 <- 0
+coef1 <- 0
+coef2 <- 0
+coef5 <- 0
+coef6 <- 0
+width.int1 <- 0
+width.int2 <- 0
+width.int5 <- 0
+width.int6 <- 0
+model1 <- 0
+model2 <- 0
+model5 <- 0
+model6 <- 0
+iter1 <- 0
+iter2 <- 0
+iter5 <- 0
+iter6 <- 0
+cov1 <- 0
+cov2 <- 0
+cov5 <- 0
+cov6 <- 0
+for(i in 1:100){
+df1 <- sim_pois.dat()
+pois.mod1 <- glm(y ~ x, data = df1, family = "poisson")
+coef1[i] <- as.numeric(coef(pois.mod1)[2])
+bias1[i] <- as.numeric(coef(pois.mod1)[2]-0.25)
+width.int1[i] <- as.numeric(4*summary(pois.mod1)$coefficient[2,2])
+cov1[i] <- as.numeric(abs(0.25 - summary(pois.mod1)$coefficient[2,1]) <
+2*summary(pois.mod1)$coefficient[2,2])
+model1[i] <- "Poisson"
+iter1[i] <- i
+nb.mod1 <- glm.nb(y ~ x, data = df1)
+coef2[i] <- as.numeric(coef(nb.mod1)[2])
+bias2[i] <- as.numeric(coef(nb.mod1)[2]-0.25)
+width.int2[i] <- as.numeric(4*summary(nb.mod1)$coefficient[2,2])
+cov2[i] <- as.numeric(abs(0.25 - summary(nb.mod1)$coefficient[2,1]) <
+2*summary(nb.mod1)$coefficient[2,2])
+model2[i] <- "NB"
+iter2[i] <- i
+hpois.mod1 <- hurdle(y ~ x|1, data = df1, dist = "poisson")
+coef5[i] <- as.numeric(coef(hpois.mod1)[2])
+bias5[i] <- as.numeric(coef(hpois.mod1)[2]-0.25)
+width.int5[i] <- as.numeric(4*summary(hpois.mod1)$coefficient$count[2,2])
+cov5[i] <- as.numeric(abs(0.25 - summary(hpois.mod1)$coefficient$count[2,1]) <
+2*summary(hpois.mod1)$coefficient$count[2,2])
+model5[i] <- "HP"
+iter5[i] <- i
+hnb.mod1 <- hurdle(y ~ x|1, data = df1, dist = "negbin")
+coef6[i] <- as.numeric(coef(hnb.mod1)[2])
+bias6[i] <- as.numeric(coef(hnb.mod1)[2]-0.25)
+width.int6[i] <- as.numeric(4*summary(hnb.mod1)$coefficient$count[2,2])
+cov6[i] <- as.numeric(abs(0.25 - summary(hnb.mod1)$coefficient$count[2,1]) <
+2*summary(hnb.mod1)$coefficient$count[2,2])
+model6[i] <- "HNB"
+iter6[i] <- i
+mean_aicpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[1,2]
+mean_aicnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[2,2]
+mean_aichpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[3,2]
+mean_aichnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[4,2]
+}
+sim.dat3 <- data.frame(bias = c(bias1, bias2, bias5, bias6),
+width.int = c(width.int1, width.int2, width.int5,
+width.int6),
+coef = c(coef1, coef2, coef5, coef6),
+model = c(model1, model2, model5, model6),
+iter = c(iter1, iter2, iter5, iter6),
+cov = c(cov1, cov2, cov5, cov6),
+aic = c(mean_aicpois, mean_aicnb, mean_aichpois,
+mean_aichnb))
+
+#Negative Binomial simulation
+set.seed(32329)
+mean_aicpois <- 0
+mean_aicnb <- 0
+mean_aichpois <- 0
+mean_aichnb <-0
+bias1 <- 0
+bias2 <- 0
+bias5 <- 0
+bias6 <- 0
+coef1 <- 0
+coef2 <- 0
+coef5 <- 0
+coef6 <- 0
+width.int1 <- 0
+width.int2 <- 0
+width.int5 <- 0
+width.int6 <- 0
+model1 <- 0
+model2 <- 0
+model5 <- 0
+model6 <- 0
+iter1 <- 0
+iter2 <- 0
+iter5 <- 0
+iter6 <- 0
+cov1 <- 0
+cov2 <- 0
+cov5 <- 0
+cov6 <- 0
+for(i in 1:100){
+df1 <- sim_nb.dat()
+pois.mod1 <- glm(y ~ x, data = df1, family = "poisson")
+coef1[i] <- as.numeric(coef(pois.mod1)[2])
+bias1[i] <- as.numeric(coef(pois.mod1)[2]-0.25)
+width.int1[i] <- as.numeric(4*summary(pois.mod1)$coefficient[2,2])
+cov1[i] <- as.numeric(abs(0.25 - summary(pois.mod1)$coefficient[2,1]) <
+2*summary(pois.mod1)$coefficient[2,2])
+model1[i] <- "Poisson"
+iter1[i] <- i
+nb.mod1 <- glm.nb(y ~ x, data = df1)
+coef2[i] <- as.numeric(coef(nb.mod1)[2])
+bias2[i] <- as.numeric(coef(nb.mod1)[2]-0.25)
+width.int2[i] <- as.numeric(4*summary(nb.mod1)$coefficient[2,2])
+cov2[i] <- as.numeric(abs(0.25 - summary(nb.mod1)$coefficient[2,1]) <
+2*summary(nb.mod1)$coefficient[2,2])
+model2[i] <- "NB"
+iter2[i] <- i
+hpois.mod1 <- hurdle(y ~ x|1, data = df1, dist = "poisson")
+coef5[i] <- as.numeric(coef(hpois.mod1)[2])
+bias5[i] <- as.numeric(coef(hpois.mod1)[2]-0.25)
+width.int5[i] <- as.numeric(4*summary(hpois.mod1)$coefficient$count[2,2])
+cov5[i] <- as.numeric(abs(0.25 - summary(hpois.mod1)$coefficient$count[2,1]) <
+2*summary(hpois.mod1)$coefficient$count[2,2])
+model5[i] <- "HP"
+iter5[i] <- i
+hnb.mod1 <- hurdle(y ~ x|1, data = df1, dist = "negbin")
+coef6[i] <- as.numeric(coef(hnb.mod1)[2])
+bias6[i] <- as.numeric(coef(hnb.mod1)[2]-0.25)
+width.int6[i] <- as.numeric(4*summary(hnb.mod1)$coefficient$count[2,2])
+cov6[i] <- as.numeric(abs(0.25 - summary(hnb.mod1)$coefficient$count[2,1]) <
+2*summary(hnb.mod1)$coefficient$count[2,2])
+model6[i] <- "HNB"
+iter6[i] <- i
+mean_aicpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[1,2]
+mean_aicnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[2,2]
+mean_aichpois[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[3,2]
+mean_aichnb[i] <- as.data.frame(AIC(pois.mod1, nb.mod1, hpois.mod1,
+hnb.mod1))[4,2]
+}
+sim.dat4 <- data.frame(bias = c(bias1, bias2, bias5, bias6),
+width.int = c(width.int1, width.int2, width.int5,
+width.int6),
+coef = c(coef1, coef2, coef5, coef6),
+model = c(model1, model2, model5, model6),
+iter = c(iter1, iter2, iter5, iter6),
+cov = c(cov1, cov2, cov5, cov6),
+aic = c(mean_aicpois, mean_aicnb, mean_aichpois,
+mean_aichnb))
+
+set.seed(47849)
+dat1 <- sim_pois.dat()
+dat2 <- sim_nb.dat()
+dat3 <- sim_hpois.dat()
+dat4 <- sim_hnb.dat()
+a.pois.mod1 <- glm(y ~ x , data =dat1, family = "poisson")
+a.nb.mod1 <- glm.nb(y ~ x, data = dat1)
+a.hpois.mod1 <- hurdle(y ~ x|1, data = dat1, dist = "poisson")
+a.hnb.mod1 <- hurdle(y ~ x|1, data = dat1, dist = "negbin")
+a.pois.resid1 <- residuals(a.pois.mod1, type = "pearson")
+a.nb.resid1 <- residuals(a.nb.mod1, type = "pearson")
+a.hpois.resid1 <- residuals(a.hpois.mod1, type = "pearson")
+a.hnb.resid1 <- residuals(a.hnb.mod1, type = "pearson")
+a.pois.fit1 <- fitted(a.pois.mod1)
+a.nb.fit1 <- fitted(a.nb.mod1)
+a.hpois.fit1 <- fitted(a.hpois.mod1)
+a.hnb.fit1 <- fitted(a.hnb.mod1)
+a.pois.mod2 <- glm(y ~ x , data =dat2, family = "poisson")
+a.nb.mod2 <- glm.nb(y ~ x, data = dat2)
+a.hpois.mod2 <- hurdle(y ~ x|1, data = dat2, dist = "poisson")
+a.hnb.mod2 <- hurdle(y ~ x|1, data = dat2, dist = "negbin")
+a.pois.resid2 <- residuals(a.pois.mod2, type = "pearson")
+a.nb.resid2 <- residuals(a.nb.mod2, type = "pearson")
+a.hpois.resid2 <- residuals(a.hpois.mod2, type = "pearson")
+a.hnb.resid2 <- residuals(a.hnb.mod2, type = "pearson")
+a.pois.fit2 <- fitted(a.pois.mod2)
+a.nb.fit2 <- fitted(a.nb.mod2)
+a.hpois.fit2 <- fitted(a.hpois.mod2)
+a.hnb.fit2 <- fitted(a.hnb.mod2)
+a.pois.mod3 <- glm(y ~ x, data =dat3, family = "poisson")
+a.nb.mod3 <- glm.nb(y ~ x, data = dat3)
+a.hpois.mod3 <- hurdle(y ~ x|1, data = dat3, dist = "poisson")
+a.hnb.mod3 <- hurdle(y ~ x|1, data = dat3, dist = "negbin")
+a.pois.resid3 <- residuals(a.pois.mod3, type = "pearson")
+a.nb.resid3 <- residuals(a.nb.mod3, type = "pearson")
+a.hpois.resid3 <- residuals(a.hpois.mod3, type = "pearson")
+a.hnb.resid3 <- residuals(a.hnb.mod3, type = "pearson")
+a.pois.fit3 <- fitted(a.pois.mod3)
+a.nb.fit3 <- fitted(a.nb.mod3)
+a.hpois.fit3 <- fitted(a.hpois.mod3)
+a.hnb.fit3 <- fitted(a.hnb.mod3)
+a.pois.mod4 <- glm(y ~ x , data =dat4, family = "poisson")
+a.nb.mod4 <- glm.nb(y ~ x, data = dat4)
+a.hpois.mod4 <- hurdle(y ~ x|1, data = dat4, dist = "poisson")
+a.hnb.mod4 <- hurdle(y ~ x|1, data = dat4, dist = "negbin")
+a.pois.resid4 <- residuals(a.pois.mod4, type = "pearson")
+a.nb.resid4 <- residuals(a.nb.mod4, type = "pearson")
+a.hpois.resid4 <- residuals(a.hpois.mod4, type = "pearson")
+a.hnb.resid4 <- residuals(a.hnb.mod4, type = "pearson")
+a.pois.fit4 <- fitted(a.pois.mod4)
+a.nb.fit4 <- fitted(a.nb.mod4)
+a.hpois.fit4 <- fitted(a.hpois.mod4)
+a.hnb.fit4 <- fitted(a.hnb.mod4)
+###############################################################################################
+
+
+#Summarizing simulation results
+###############################################################################################
+model <- c("Poisson", "NB", "HP", "HNB", "Poisson", "NB",
+"HP", "HNB", "Poisson", "NB", "HP", "HNB", "Poisson",
+"NB", "HP", "HNB")
+bias2 <- round(c(summary(a.pois.mod1)$coefficient[2,1]-0.25,
+summary(a.nb.mod1)$coefficient[2,1]-0.25,
+summary(a.hpois.mod1)$coefficient$count[2,1]-0.25,
+summary(a.hnb.mod1)$coefficient$count[2,1]-0.25,
+summary(a.pois.mod2)$coefficient[2,1]-0.25,
+summary(a.nb.mod2)$coefficient[2,1]-0.25,
+summary(a.hpois.mod2)$coefficient$count[2,1]-0.25,
+summary(a.hnb.mod2)$coefficient$count[2,1]-0.25,
+summary(a.pois.mod3)$coefficient[2,1]-0.25,
+summary(a.nb.mod3)$coefficient[2,1]-0.25,
+summary(a.hpois.mod3)$coefficient$count[2,1]-0.25,
+summary(a.hnb.mod3)$coefficient$count[2,1]-0.25,
+summary(a.pois.mod4)$coefficient[2,1]-0.25,
+summary(a.nb.mod4)$coefficient[2,1]-0.25,
+summary(a.hpois.mod4)$coefficient$count[2,1]-0.25,
+summary(a.hnb.mod4)$coefficient$count[2,1]-0.25
+),3)
+bias <- round(c(mean(sim.dat3[sim.dat3$model == "Poisson",]$coef)-0.25,
+mean(sim.dat3[sim.dat3$model == "NB",]$coef)-0.25,
+mean(sim.dat3[sim.dat3$model == "HP",]$coef)-0.25,
+mean(sim.dat3[sim.dat3$model == "HNB",]$coef)-0.25,
+mean(sim.dat4[sim.dat4$model == "Poisson",]$coef)-0.25,
+mean(sim.dat4[sim.dat4$model == "NB",]$coef)-0.25,
+mean(sim.dat4[sim.dat4$model == "HP",]$coef)-0.25,
+mean(sim.dat4[sim.dat4$model == "HNB",]$coef)-0.25,
+mean(sim.dat1[sim.dat1$model == "Poisson",]$coef)-0.25,
+mean(sim.dat1[sim.dat1$model == "NB",]$coef)-0.25,
+mean(sim.dat1[sim.dat1$model == "HP",]$coef)-0.25,
+mean(sim.dat1[sim.dat1$model == "HNB",]$coef)-0.25,
+mean(sim.dat2[sim.dat2$model == "Poisson",]$coef)-0.25,
+mean(sim.dat2[sim.dat2$model == "NB",]$coef)-0.25,
+mean(sim.dat2[sim.dat2$model == "HP",]$coef)-0.25,
+mean(sim.dat2[sim.dat2$model == "HNB",]$coef)-0.25),3)
+width.bias.ci <- round(c(4*summary(a.pois.mod1)$coefficient[2,2],
+4*summary(a.nb.mod1)$coefficient[2,2],
+4*summary(a.hpois.mod1)$coefficient$count[2,2],
+4*summary(a.hnb.mod1)$coefficient$count[2,2],
+4*summary(a.pois.mod2)$coefficient[2,2],
+4*summary(a.nb.mod2)$coefficient[2,2],
+4*summary(a.hpois.mod2)$coefficient$count[2,2],
+4*summary(a.hnb.mod2)$coefficient$count[2,2],
+4*summary(a.pois.mod3)$coefficient[2,2],
+4*summary(a.nb.mod3)$coefficient[2,2],
+4*summary(a.hpois.mod3)$coefficient$count[2,2],
+4*summary(a.hnb.mod3)$coefficient$count[2,2],
+4*summary(a.pois.mod4)$coefficient[2,2],
+4*summary(a.nb.mod4)$coefficient[2,2],
+4*summary(a.hpois.mod4)$coefficient$count[2,2],
+4*summary(a.hnb.mod4)$coefficient$count[2,2]
+),3)
+avg.bias <- round(c(mean(sim.dat3[sim.dat3$model == "Poisson",]$bias),
+mean(sim.dat3[sim.dat3$model == "NB",]$bias),
+mean(sim.dat3[sim.dat3$model == "HP",]$bias),
+mean(sim.dat3[sim.dat3$model == "HNB",]$bias),
+mean(sim.dat4[sim.dat4$model == "Poisson",]$bias),
+mean(sim.dat4[sim.dat4$model == "NB",]$bias),
+mean(sim.dat4[sim.dat4$model == "HP",]$bias),
+mean(sim.dat4[sim.dat4$model == "HNB",]$bias),
+mean(sim.dat1[sim.dat1$model == "Poisson",]$bias),
+mean(sim.dat1[sim.dat1$model == "NB",]$bias),
+mean(sim.dat1[sim.dat1$model == "HP",]$bias),
+mean(sim.dat1[sim.dat1$model == "HNB",]$bias),
+mean(sim.dat2[sim.dat2$model == "Poisson",]$bias),
+mean(sim.dat2[sim.dat2$model == "NB",]$bias),
+mean(sim.dat2[sim.dat2$model == "HP",]$bias),
+mean(sim.dat2[sim.dat2$model == "HNB",]$bias)), 3)
+var.bias <- round(c(var(sim.dat3[sim.dat3$model == "Poisson",]$bias),
+var(sim.dat3[sim.dat3$model == "NB",]$bias),
+var(sim.dat3[sim.dat3$model == "HP",]$bias),
+var(sim.dat3[sim.dat3$model == "HNB",]$bias),
+var(sim.dat4[sim.dat4$model == "Poisson",]$bias),
+var(sim.dat4[sim.dat4$model == "NB",]$bias),
+var(sim.dat4[sim.dat4$model == "HP",]$bias),
+var(sim.dat4[sim.dat4$model == "HNB",]$bias),
+var(sim.dat1[sim.dat1$model == "Poisson",]$bias),
+var(sim.dat1[sim.dat1$model == "NB",]$bias),
+var(sim.dat1[sim.dat1$model == "HP",]$bias),
+var(sim.dat1[sim.dat1$model == "HNB",]$bias),
+var(sim.dat2[sim.dat2$model == "Poisson",]$bias),
+var(sim.dat2[sim.dat2$model == "NB",]$bias),
+var(sim.dat2[sim.dat2$model == "HP",]$bias),
+var(sim.dat2[sim.dat2$model == "HNB",]$bias)),3)
+ci.bias <- c(paste("(",round(mean(sim.dat3[sim.dat3$model == "Poisson",]$bias)
+-2*sd(sim.dat3[sim.dat3$model == "Poisson",]$bias),3),",",
+round(mean(sim.dat3[sim.dat3$model == "Poisson",]$bias)+
+2*sd(sim.dat3[sim.dat3$model == "Poisson",]$bias), 3),")"),
+paste("(",round(mean(sim.dat3[sim.dat3$model == "NB",]$bias)-
+2*sd(sim.dat3[sim.dat3$model == "NB",]$bias), 3),",",
+round(mean(sim.dat3[sim.dat3$model == "NB",]$bias)+
+2*sd(sim.dat3[sim.dat3$model == "NB",]$bias), 3),")"),
+paste("(",round(mean(sim.dat3[sim.dat3$model == "HP",]$bias)-
+round(mean(sim.dat3[sim.dat3$model == "HP",]$bias)+
+2*sd(sim.dat3[sim.dat3$model == "HP",]$bias), 3),")"),
+paste("(",round(mean(sim.dat3[sim.dat3$model == "HNB",]$bias)-
+2*sd(sim.dat3[sim.dat3$model == "HNB",]$bias), 3),",",
+round(mean(sim.dat3[sim.dat3$model == "HNB",]$bias)+
+2*sd(sim.dat3[sim.dat3$model == "HNB",]$bias), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "Poisson",]$bias)-
+2*sd(sim.dat4[sim.dat4$model == "Poisson",]$bias), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "Poisson",]$bias)+
+2*sd(sim.dat4[sim.dat4$model == "Poisson",]$bias), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "NB",]$bias)-
+2*sd(sim.dat4[sim.dat4$model == "NB",]$bias), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "NB",]$bias)+
+2*sd(sim.dat4[sim.dat4$model == "NB",]$bias), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "HP",]$bias)-
+2*sd(sim.dat4[sim.dat4$model == "HP",]$bias), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "HP",]$bias)+
+2*sd(sim.dat4[sim.dat4$model == "HP",]$bias), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "HNB",]$bias)-
+2*sd(sim.dat4[sim.dat4$model == "HNB",]$bias), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "HNB",]$bias)+
+2*sd(sim.dat4[sim.dat4$model == "HNB",]$bias), 3),")"),
+paste("(",round(mean(sim.dat1[sim.dat1$model == "Poisson",]$bias)-
+2*sd(sim.dat1[sim.dat1$model == "Poisson",]$bias), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "Poisson",]$bias)+
+2*sd(sim.dat1[sim.dat1$model == "Poisson",]$bias), 3),")"),
+paste("(", round(mean(sim.dat1[sim.dat1$model == "NB",]$bias)-
+2*sd(sim.dat1[sim.dat1$model == "NB",]$bias), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "NB",]$bias)+
+2*sd(sim.dat1[sim.dat1$model == "NB",]$bias), 3),")"),
+paste("(", round(mean(sim.dat1[sim.dat1$model == "HP",]$bias)-
+2*sd(sim.dat1[sim.dat1$model == "HP",]$bias), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "HP",]$bias)+
+2*sd(sim.dat1[sim.dat1$model == "HP",]$bias), 3),")"),
+paste("(",round(mean(sim.dat1[sim.dat1$model == "HNB",]$bias)-
+2*sd(sim.dat1[sim.dat1$model == "HNB",]$bias), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "HNB",]$bias)+
+2*sd(sim.dat1[sim.dat1$model == "HNB",]$bias), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "Poisson",]$bias)-
+2*sd(sim.dat2[sim.dat2$model == "Poisson",]$bias), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "Poisson",]$bias)+
+2*sd(sim.dat2[sim.dat2$model == "Poisson",]$bias), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "NB",]$bias)-
+2*sd(sim.dat2[sim.dat2$model == "NB",]$bias), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "NB",]$bias)+
+2*sd(sim.dat2[sim.dat2$model == "NB",]$bias), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "HP",]$bias)-
+2*sd(sim.dat2[sim.dat2$model == "HP",]$bias), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "HP",]$bias)+
+2*sd(sim.dat2[sim.dat2$model == "HP",]$bias), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "HNB",]$bias)-
+2*sd(sim.dat2[sim.dat2$model == "HNB",]$bias), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "HNB",]$bias)+
+2*sd(sim.dat2[sim.dat2$model == "HNB",]$bias), 3),")"))
+ci.width <- round(c(mean(sim.dat3[sim.dat3$model == "Poisson",]$width.int),
+mean(sim.dat3[sim.dat3$model == "NB",]$width.int),
+mean(sim.dat3[sim.dat3$model == "HP",]$width.int),
+mean(sim.dat3[sim.dat3$model == "HNB",]$width.int),
+mean(sim.dat4[sim.dat4$model == "Poisson",]$width.int),
+mean(sim.dat4[sim.dat4$model == "NB",]$width.int),
+mean(sim.dat4[sim.dat4$model == "HP",]$width.int),
+mean(sim.dat4[sim.dat4$model == "HNB",]$width.int),
+mean(sim.dat1[sim.dat1$model == "Poisson",]$width.int),
+mean(sim.dat1[sim.dat1$model == "NB",]$width.int),
+mean(sim.dat1[sim.dat1$model == "HP",]$width.int),
+mean(sim.dat1[sim.dat1$model == "HNB",]$width.int),
+mean(sim.dat2[sim.dat2$model == "Poisson",]$width.int),
+mean(sim.dat2[sim.dat2$model == "NB",]$width.int),
+mean(sim.dat2[sim.dat2$model == "HP",]$width.int),
+mean(sim.dat2[sim.dat2$model == "HNB",]$width.int)),3)
+aic <- round(c(mean(sim.dat3[sim.dat3$model == "Poisson",]$aic),
+mean(sim.dat3[sim.dat3$model == "NB",]$aic),
+mean(sim.dat3[sim.dat3$model == "HP",]$aic),
+mean(sim.dat3[sim.dat3$model == "HNB",]$aic),
+mean(sim.dat4[sim.dat4$model == "Poisson",]$aic),
+mean(sim.dat4[sim.dat4$model == "NB",]$aic),
+mean(sim.dat4[sim.dat4$model == "HP",]$aic),
+mean(sim.dat4[sim.dat4$model == "HNB",]$aic),
+mean(sim.dat1[sim.dat1$model == "Poisson",]$aic),
+mean(sim.dat1[sim.dat1$model == "NB",]$aic),
+mean(sim.dat1[sim.dat1$model == "HP",]$aic),
+mean(sim.dat1[sim.dat1$model == "HNB",]$aic),
+mean(sim.dat2[sim.dat2$model == "Poisson",]$aic),
+mean(sim.dat2[sim.dat2$model == "NB",]$aic),
+mean(sim.dat2[sim.dat2$model == "HP",]$aic),
+mean(sim.dat2[sim.dat2$model == "HNB",]$aic)), 3)
+ci.aic <- c(paste("(",round(mean(sim.dat3[sim.dat3$model == "Poisson",]$aic)-
+2*sd(sim.dat3[sim.dat3$model == "Poisson",]$aic),3),",",
+round(mean(sim.dat3[sim.dat3$model == "Poisson",]$aic)+
+2*sd(sim.dat3[sim.dat3$model == "Poisson",]$aic), 3),")"),
+paste("(",round(mean(sim.dat3[sim.dat3$model == "NB",]$aic)-
+2*sd(sim.dat3[sim.dat3$model == "NB",]$aic), 3),",",
+round(mean(sim.dat3[sim.dat3$model == "NB",]$aic)+
+2*sd(sim.dat3[sim.dat3$model == "NB",]$aic), 3),")"),
+paste("(",round(mean(sim.dat3[sim.dat3$model == "HP",]$aic)-
+2*sd(sim.dat3[sim.dat3$model == "HP",]$aic), 3),",",
+round(mean(sim.dat3[sim.dat3$model == "HP",]$aic)+
+2*sd(sim.dat3[sim.dat3$model == "HP",]$aic), 3),")"),
+paste("(",round(mean(sim.dat3[sim.dat3$model == "HNB",]$aic)-
+2*sd(sim.dat3[sim.dat3$model == "HNB",]$aic), 3),",",
+round(mean(sim.dat3[sim.dat3$model == "HNB",]$aic)+
+2*sd(sim.dat3[sim.dat3$model == "HNB",]$aic), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "Poisson",]$aic)-
+2*sd(sim.dat4[sim.dat4$model == "Poisson",]$aic), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "Poisson",]$aic)+
+2*sd(sim.dat4[sim.dat4$model == "Poisson",]$aic), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "NB",]$aic)-
+2*sd(sim.dat4[sim.dat4$model == "NB",]$aic), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "NB",]$aic)+
+2*sd(sim.dat4[sim.dat4$model == "NB",]$aic), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "HP",]$aic)-
+2*sd(sim.dat4[sim.dat4$model == "HP",]$aic), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "HP",]$aic)+
+2*sd(sim.dat4[sim.dat4$model == "HP",]$aic), 3),")"),
+paste("(",round(mean(sim.dat4[sim.dat4$model == "HNB",]$aic)-
+2*sd(sim.dat4[sim.dat4$model == "HNB",]$aic), 3),",",
+round(mean(sim.dat4[sim.dat4$model == "HNB",]$aic)+
+2*sd(sim.dat4[sim.dat4$model == "HNB",]$aic), 3),")"),
+paste("(",round(mean(sim.dat1[sim.dat1$model == "Poisson",]$aic)-
+2*sd(sim.dat1[sim.dat1$model == "Poisson",]$aic), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "Poisson",]$aic)+
+2*sd(sim.dat1[sim.dat1$model == "Poisson",]$aic), 3),")"),
+paste("(", round(mean(sim.dat1[sim.dat1$model == "NB",]$aic)-
+2*sd(sim.dat1[sim.dat1$model == "NB",]$aic), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "NB",]$aic)+
+2*sd(sim.dat1[sim.dat1$model == "NB",]$aic), 3),")"),
+paste("(", round(mean(sim.dat1[sim.dat1$model == "HP",]$aic)-
+2*sd(sim.dat1[sim.dat1$model == "HP",]$aic), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "HP",]$aic)+
+2*sd(sim.dat1[sim.dat1$model == "HP",]$aic), 3),")"),
+paste("(",round(mean(sim.dat1[sim.dat1$model == "HNB",]$aic)-
+2*sd(sim.dat1[sim.dat1$model == "HNB",]$aic), 3),",",
+round(mean(sim.dat1[sim.dat1$model == "HNB",]$aic)+
+2*sd(sim.dat1[sim.dat1$model == "HNB",]$aic), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "Poisson",]$aic)-
+2*sd(sim.dat2[sim.dat2$model == "Poisson",]$aic), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "Poisson",]$aic)+
+2*sd(sim.dat2[sim.dat2$model == "Poisson",]$aic), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "NB",]$aic)-
+2*sd(sim.dat2[sim.dat2$model == "NB",]$aic), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "NB",]$aic)+
+2*sd(sim.dat2[sim.dat2$model == "NB",]$aic), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "HP",]$aic)-
+2*sd(sim.dat2[sim.dat2$model == "HP",]$aic), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "HP",]$aic)+
+2*sd(sim.dat2[sim.dat2$model == "HP",]$aic), 3),")"),
+paste("(",round(mean(sim.dat2[sim.dat2$model == "HNB",]$aic)-
+2*sd(sim.dat2[sim.dat2$model == "HNB",]$aic), 3),",",
+round(mean(sim.dat2[sim.dat2$model == "HNB",]$aic)+
+2*sd(sim.dat2[sim.dat2$model == "HNB",]$aic), 3),")"))
+sim <- c("Poisson Data", " ", " ", " ", "NB Data", " ", " ", " ",
+"HP Data", " ", " ", " ", "HNB Data", " ", " ", " ")
+pear <- round(c(mean(a.pois.resid1), mean(a.nb.resid1),
+mean(a.hpois.resid1), mean(a.hnb.resid1),
+mean(a.pois.resid2), mean(a.nb.resid2), mean(a.hpois.resid2),
+mean(a.hnb.resid2),mean(a.pois.resid3), mean(a.nb.resid3),
+mean(a.hpois.resid3), mean(a.hnb.resid3),
+mean(a.pois.resid4), mean(a.nb.resid4), mean(a.hpois.resid4),
+mean(a.hnb.resid4)),3)
+md.pear <- round(c(median(a.pois.resid1), median(a.nb.resid1),
+median(a.hpois.resid1), median(a.hnb.resid1),
+median(a.pois.resid2), median(a.nb.resid2),
+median(a.hpois.resid2), median(a.hnb.resid2),
+median(a.pois.resid3), median(a.nb.resid3),
+median(a.hpois.resid3), median(a.hnb.resid3),
+median(a.pois.resid4), median(a.nb.resid4),
+median(a.hpois.resid4), median(a.hnb.resid4)),3)
+iqr.pear <- round(c(IQR(a.pois.resid1), IQR(a.nb.resid1), IQR(a.hpois.resid1),
+IQR(a.hnb.resid1), IQR(a.pois.resid2), IQR(a.nb.resid2),
+IQR(a.hpois.resid2), IQR(a.hnb.resid2),IQR(a.pois.resid3),
+IQR(a.nb.resid3), IQR(a.hpois.resid3), IQR(a.hnb.resid3),
+IQR(a.pois.resid4), IQR(a.nb.resid4), IQR(a.hpois.resid4),
+IQR(a.hnb.resid4)),3)
+ci.width2 <- round(c(4*summary(a.pois.mod1)$coefficient[2,2],
+4*summary(a.nb.mod1)$coefficient[2,2],
+4*summary(a.hpois.mod1)$coefficient$count[2,2],
+4*summary(a.hnb.mod1)$coefficient$count[2,2],
+4*summary(a.pois.mod2)$coefficient[2,2],
+4*summary(a.nb.mod2)$coefficient[2,2],
+4*summary(a.hpois.mod2)$coefficient$count[2,2],
+4*summary(a.hnb.mod2)$coefficient$count[2,2],
+4*summary(a.pois.mod3)$coefficient[2,2],
+4*summary(a.nb.mod3)$coefficient[2,2],
+4*summary(a.hpois.mod3)$coefficient$count[2,2],
+4*summary(a.hnb.mod3)$coefficient$count[2,2],
+4*summary(a.pois.mod4)$coefficient[2,2],
+4*summary(a.nb.mod4)$coefficient[2,2],
+4*summary(a.hpois.mod4)$coefficient$count[2,2],
+4*summary(a.hnb.mod4)$coefficient$count[2,2]),3)
+cov <- round(c(mean(sim.dat3[sim.dat3$model == "Poisson",]$cov),
+mean(sim.dat3[sim.dat3$model == "NB",]$cov),
+mean(sim.dat3[sim.dat3$model == "HP",]$cov),
+mean(sim.dat3[sim.dat3$model == "HNB",]$cov),
+mean(sim.dat4[sim.dat4$model == "Poisson",]$cov),
+mean(sim.dat4[sim.dat4$model == "NB",]$cov),
+mean(sim.dat4[sim.dat4$model == "HP",]$cov),
+mean(sim.dat4[sim.dat4$model == "HNB",]$cov),
+mean(sim.dat1[sim.dat1$model == "Poisson",]$cov),
+mean(sim.dat1[sim.dat1$model == "NB",]$cov),
+mean(sim.dat1[sim.dat1$model == "HP",]$cov),
+mean(sim.dat1[sim.dat1$model == "HNB",]$cov),
+mean(sim.dat2[sim.dat2$model == "Poisson",]$cov),
+mean(sim.dat2[sim.dat2$model == "NB",]$cov),
+mean(sim.dat2[sim.dat2$model == "HP",]$cov),
+mean(sim.dat2[sim.dat2$model == "HNB",]$cov)),3)
+tab <- data.frame(sim = sim, Model = model, bias = bias,
+ci.width2 = width.bias.ci, cov = cov,
+iqr.pear = iqr.pear, AIC = aic)
+colnames(tab) <- c("Assumed Distribution", "Model","Bias","Width 95% C.I.",
+"Coverage", "IQR Pearson","Avg AIC")
+# tab <- tab %>%
+# format_cells(c(1, 6, 11, 16), c(2:7), "bold")
+kbl(tab, longtable = T, booktabs = T,
+caption = "Simulation results for the four different count models after 100 iterati
+row_spec(c(1, 6, 11, 16), bold = TRUE) %>%
+column_spec(1, bold = TRUE) %>%
+kable_styling(position = "center", font_size = 10)
+###############################################################################################
+
+#Simulation results in a rootogram
+###############################################################################################
+par(mfrow = c(4,4))
+rootogram(a.pois.mod1, main = "Poisson Model", ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.nb.mod1, main = "NB Model", ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.hpois.mod1, main = "HP Model", ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.hnb.mod1, main = "HNB Model", ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+mtext(expression(bold("Poissson Data")), side = 4, line = 1)
+box("outer", col="black", lwd = 1)
+rootogram(a.pois.mod2, main = "", ylim = c(-35, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.nb.mod2, main = "",ylim = c(-5, 60), max = 10,
+ylab = "sqrt(Freq)")
+rootogram(a.hpois.mod2, main = "",ylim = c(-20, 60), max = 10,
+ylab = "sqrt(Freq)")
+rootogram(a.hnb.mod2, main = "",ylim = c(-5, 60), max = 10,
+ylab = "sqrt(Freq)")
+mtext(expression(bold("NB Data")), side = 4, line = 1)
+box("outer", col="black", lwd = 1)
+rootogram(a.pois.mod3, main = "",ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.nb.mod3, main = "",ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+rootogram(a.hpois.mod3, main = "",ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+rootogram(a.hnb.mod3, main = "",ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+mtext(expression(bold("HP Data")), side = 4, line = 1)
+box("outer", col="black", lwd = 1)
+rootogram(a.pois.mod4, main = "",ylim = c(-30, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.nb.mod4, main = "",ylim = c(-20, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.hpois.mod4, main = "",ylim = c(-30, 40), max = 10,
+ylab = "sqrt(Freq)")
+box("outer", col="black", lwd = 1)
+rootogram(a.hnb.mod4, main = "",ylim = c(-5, 40), max = 10,
+ylab = "sqrt(Freq)")
+mtext(expression(bold("HNB Data")), side = 4, line = 1)
+box("outer", col="black", lwd = 1)
+###############################################################################################
+
+#Application to real-life data
+###############################################################################################
+#load dataset
+claims <- read_csv("claim_dat.csv")
+#Data wrangling
+claims <- claims %>%
+mutate(Age_Category = factor(Age_Category),
+Gender = factor(Gender),
+License = factor(License),
+Year = factor(Year),
+DevYear = factor(DevYear, levels = c("2009@2013", "2010@2013",
+"2011@2013", "2012@2013", "2013@2013", "2011@2015", "2012@2015",
+"2013@2015", "2014@2015", "2015@2015")))
+claims_sub <- claims %>%
+filter(Coverage != "All")
+###############################################################################################
+
+#Data Exploration
+###############################################################################################
+val2 <- table(claims_sub$No_of_Large_Claims)
+plot(val2,lwd=2,col="blue",ylab="Density",
+xlab="Number of Large claims",
+main=expression("Distribution of Number of Large Claims"))
+
+claims_sub %>%
+ggplot(aes(x = Gender, y = No_of_Large_Claims, fill = License)) +
+geom_col(position = "dodge") +
+facet_grid(Year ~ Age_Category)+
+ggtitle("Number of Large Claims for Gender and License for
+each Age Category and Year")+
+xlab("Gender")+
+ylab("Total Number of Large Claims")
+
+claims_sub %>%
+ggplot(aes(x = Gender, y = No_of_Large_Claims, fill = Coverage)) +
+geom_col(position = "dodge") +
+facet_grid(Year ~ Age_Category)+
+ggtitle("Number of Large Claims for Gender and Insurance Coverage
+for each Age Category and Year")+
+xlab("Gender") +
+ylab("Total Number of Large Claims")
+###############################################################################################
+
+#Model fitting
+###############################################################################################
+null.pois <- glm(No_of_Large_Claims ~ 1, data = claims_sub, family = "poisson")
+pois.full.add <- glm(No_of_Large_Claims ~ Age_Category + Gender + License +
+Coverage + Year , data = claims_sub, family = "poisson")
+null.nb <- glm.nb(No_of_Large_Claims ~ 1, data = claims_sub)
+nb.full.add <- glm.nb(No_of_Large_Claims ~ Age_Category + Gender + License +
+Coverage + Year , data = claims_sub)
+hpois.add <- hurdle(formula = No_of_Large_Claims ~ Coverage + License + Age_Category +
+Year + Gender |Age_Category + Gender + License + Coverage + Year ,
+data = claims_sub, dist = "poisson")
+hnb.add <- hurdle(formula = No_of_Large_Claims ~ Coverage + License +Age_Category +
+Year + Gender |Age_Category + Gender + License +
+Coverage + Year , data = claims_sub, dist = "negbin")
+###############################################################################################
+
+#AIC for the models
+###############################################################################################
+modelTABLE <- model.sel(pois.full.add, nb.full.add, hpois.add, hnb.add)
+c <-data.frame(modelTABLE)
+d <- c[, 24:27]
+rownames(d) <- c("Hurdle Negative Binomial", "Negative Binomial",
+"Hurdle Poisson", "Poisson")
+colnames(d) <- c("df", "logLik", "AIC", "Delta")
+kbl(d, longtable = T, booktabs = T,
+caption='AIC for the four fitted models') %>%
+kable_styling(latex_options = "hold_position")
+###############################################################################################
+
+#Rootogram for the models
+###############################################################################################
+par(mfrow = c(2,2))
+rootogram(pois.full.add, main = "POIS", xlab = "Large claims",
+ylim = c(-5, 20), max = 50)
+box("outer", col="black", lwd = 1)
+rootogram(nb.full.add, main = "NEGB", xlab = "Large claims",
+ylim = c(-5, 20), max = 50)
+box("outer", col="black", lwd = 1)
+rootogram(hpois.add, main = "HP", xlab = "Large claims",
+ylim = c(-5, 20), max = 50)
+box("outer", col="black", lwd = 1)
+rootogram(hnb.add, main = "HNB", xlab = "Large claims",
+ylim = c(-5, 20), max = 50)
+box("outer", col="black", lwd = 1)
+###############################################################################################
